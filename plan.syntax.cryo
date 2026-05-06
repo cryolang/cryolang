@@ -1,0 +1,32 @@
+/* Sample multiline comments
+*/
+
+// Sample single line commments
+
+public fun main() -> int {
+    return 0;
+}
+
+private fun add(uint8 a, uint8 b) -> uint8 {
+    return a + b;
+}
+
+// DATA TYPES:
+int
+int8
+int16
+int32
+int64
+
+uint8
+uint16
+uint32
+uint64
+
+float32
+float64
+
+// optional, enabled by user if needed (maybe implementing an config system.)
+int128
+uint128
+float128

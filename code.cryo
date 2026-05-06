@@ -1,0 +1,5 @@
+public fun main(const uint8 a, var uint16 b) -> int {
+    var int sample;
+    var int another = 20;
+    return 0;
+}
