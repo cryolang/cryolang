@@ -2,43 +2,102 @@ namespace CryoLang;
 
 public class Parser
 {
-    private List<Token> tokens;
+    private readonly List<Token> tokens;
     private int position = 0;
 
-    // Helper functions to make the parsing clean.
-    private Token Peek()
-    {
-        return tokens[position];
-    }
-
-    private Token Advance()
-    {
-        return tokens[position++];
-    }
-
-    private bool Match(TokenType type)
-    {
-        return Peek().Type == type;
-    }
+    private Token Peek(int offset = 0) => position + offset < tokens.Count ? tokens[position + offset] : tokens[^1];
+    private Token Advance() => tokens[position++];
+    private bool Match(TokenType type) => Peek().Type == type;
+    private bool IsAtEnd() => Match(TokenType.EOF);
 
     private Token Consume(TokenType type)
     {
         if (Match(type))
             return Advance();
 
-        throw new Exception($"Expected {type}, got {Peek().Type}");
+        throw new Exception($"Expected {type}, got {Peek().Type} at {Peek().Line}:{Peek().Column}");
     }
 
-    public FunctionNode Parse()
+    private void SkipNewlines()
     {
-        return ParseFunction();
+        while (Match(TokenType.NEWLINE))
+            Advance();
+    }
+
+    public ProgramNode Parse()
+    {
+        SkipNewlines();
+        Consume(TokenType.CRYOLANG);
+        string version = Consume(TokenType.VERSION).Value;
+        ConsumeLineEnd();
+
+        ProgramNode program = new() { LanguageVersion = version };
+
+        while (!IsAtEnd())
+        {
+            SkipNewlines();
+
+            if (IsAtEnd())
+                break;
+
+            if (Match(TokenType.IMPORT))
+                program.Imports.Add(ParseImport());
+            else if (Match(TokenType.MACRO))
+                program.Macros.Add(ParseMacro());
+            else
+                program.Functions.Add(ParseFunction());
+        }
+
+        return program;
+    }
+
+    private void ConsumeLineEnd()
+    {
+        if (Match(TokenType.SEMICOLON))
+            Advance();
+
+        if (Match(TokenType.NEWLINE))
+            SkipNewlines();
+        else if (!IsAtEnd())
+            throw new Exception($"Expected end of line at {Peek().Line}:{Peek().Column}");
+    }
+
+    private ImportNode ParseImport()
+    {
+        Consume(TokenType.IMPORT);
+        Token pathToken = Match(TokenType.PATH) ? Advance() : Consume(TokenType.IDENT);
+        ConsumeLineEnd();
+
+        return new ImportNode
+        {
+            Path = pathToken.Value,
+            IsLocal = pathToken.Type == TokenType.PATH || pathToken.Value.StartsWith("./") || pathToken.Value.StartsWith("../")
+        };
+    }
+
+    private MacroNode ParseMacro()
+    {
+        Consume(TokenType.MACRO);
+        string name = Consume(TokenType.IDENT).Value;
+        List<string> valueParts = [];
+
+        while (!Match(TokenType.NEWLINE) && !Match(TokenType.EOF))
+            valueParts.Add(Advance().Value);
+
+        ConsumeLineEnd();
+
+        return new MacroNode
+        {
+            Name = name,
+            Value = string.Join(" ", valueParts)
+        };
     }
 
     private FunctionNode ParseFunction()
     {
-        // optional public/private
+        string visibility = "private";
         if (Match(TokenType.PUBLIC) || Match(TokenType.PRIVATE))
-            Advance();
+            visibility = Advance().Value;
 
         Consume(TokenType.FUNCTION);
 
@@ -52,49 +111,49 @@ public class Parser
         {
             do
             {
-                string mut = "";
-                if(Match(TokenType.CONSTANT)){
-                    mut = Consume(TokenType.CONSTANT).Value;
-                } else {
-                    mut = Consume(TokenType.VARIABLE).Value;
+                bool isConst = true;
+                if (Match(TokenType.CONSTANT))
+                {
+                    Advance();
+                    isConst = true;
+                }
+                else if (Match(TokenType.VARIABLE))
+                {
+                    Advance();
+                    isConst = false;
                 }
 
                 string type = Consume(TokenType.TYPE).Value;
-                string _name = Consume(TokenType.IDENT).Value;
+                string parameterName = Consume(TokenType.IDENT).Value;
 
                 parameters.Add(new ParameterNode
                 {
-                    IsConst = (mut == "const"),
+                    IsConst = isConst,
                     Type = type,
-                    Name = _name
+                    Name = parameterName
                 });
 
                 if (!Match(TokenType.COMMA))
                     break;
 
                 Consume(TokenType.COMMA);
-
             } while (true);
         }
 
         Consume(TokenType.RPAREN);
 
-        Consume(TokenType.ARROW);
-        string returnType = Consume(TokenType.TYPE).Value;
-
-        Consume(TokenType.LBRACE);
-
-        var body = new List<object>();
-
-        while (!Match(TokenType.RBRACE))
+        string returnType = "void";
+        if (Match(TokenType.ARROW))
         {
-            body.Add(ParseStatement());
+            Advance();
+            returnType = Consume(TokenType.TYPE).Value;
         }
 
-        Consume(TokenType.RBRACE);
+        var body = ParseBlock();
 
         return new FunctionNode
         {
+            Visibility = visibility,
             Name = name,
             ReturnType = returnType,
             Parameters = parameters,
@@ -102,14 +161,46 @@ public class Parser
         };
     }
 
-    private object ParseStatement()
+    private List<StatementNode> ParseBlock()
     {
+        Consume(TokenType.LBRACE);
+        SkipNewlines();
+
+        var body = new List<StatementNode>();
+
+        while (!Match(TokenType.RBRACE) && !IsAtEnd())
+        {
+            body.Add(ParseStatement());
+            SkipNewlines();
+        }
+
+        Consume(TokenType.RBRACE);
+        return body;
+    }
+
+    private List<StatementNode> ParseStatementBody()
+    {
+        SkipNewlines();
+        if (Match(TokenType.LBRACE))
+            return ParseBlock();
+
+        return [ParseStatement()];
+    }
+
+    private StatementNode ParseStatement()
+    {
+        SkipNewlines();
+
         if (Match(TokenType.RETURN))
             return ParseReturn();
-        else if(Match(TokenType.CONSTANT) || Match(TokenType.VARIABLE))
+        if (Match(TokenType.CONSTANT) || Match(TokenType.VARIABLE))
             return ParseVariable();
+        if (Match(TokenType.IF))
+            return ParseIf();
+        if (Match(TokenType.WHILE))
+            return ParseWhile();
 
-        throw new Exception("Unknown statement");
+        return ParseExpressionStatement();
     }
 
     private VariableNode ParseVariable()
@@ -133,18 +224,12 @@ public class Parser
         string type = Consume(TokenType.TYPE).Value;
         string name = Consume(TokenType.IDENT).Value;
 
-        ExpressionNode value;
+        ExpressionNode value = new NumberNode { Value = "0" };
 
-        // OPTIONAL initializer
         if (Match(TokenType.EQUALS))
         {
-            Advance(); // consume '='
-            // value = ParseExpression();
-        }
-        else
-        {
-            // default initialization = 0
-            value = new NumberNode { Value = "0" };
+            Advance();
+            value = ParseExpression();
         }
 
         Consume(TokenType.SEMICOLON);
@@ -162,24 +247,164 @@ public class Parser
     {
         Consume(TokenType.RETURN);
 
-        var expr = ParseExpression();
+        ExpressionNode? expr = null;
+        if (!Match(TokenType.SEMICOLON))
+            expr = ParseExpression();
 
         Consume(TokenType.SEMICOLON);
 
-        return new ReturnNode
+        return new ReturnNode { Expression = expr };
+    }
+
+    private IfNode ParseIf()
+    {
+        Consume(TokenType.IF);
+        Consume(TokenType.LPAREN);
+        var condition = ParseExpression();
+        Consume(TokenType.RPAREN);
+
+        var thenBody = ParseStatementBody();
+        var elseBody = new List<StatementNode>();
+
+        SkipNewlines();
+        if (Match(TokenType.ELSE))
         {
-            Expression = expr
+            Advance();
+            elseBody = ParseStatementBody();
+        }
+
+        return new IfNode
+        {
+            Condition = condition,
+            ThenBody = thenBody,
+            ElseBody = elseBody
         };
     }
 
-    private object ParseExpression()
+    private WhileNode ParseWhile()
     {
-        var token = Consume(TokenType.NUMBER);
+        Consume(TokenType.WHILE);
+        Consume(TokenType.LPAREN);
+        var condition = ParseExpression();
+        Consume(TokenType.RPAREN);
 
-        return new NumberNode
+        return new WhileNode
         {
-            Value = token.Value
+            Condition = condition,
+            Body = ParseStatementBody()
         };
+    }
+
+    private ExpressionStatementNode ParseExpressionStatement()
+    {
+        var expr = ParseExpression();
+        Consume(TokenType.SEMICOLON);
+        return new ExpressionStatementNode { Expression = expr };
+    }
+
+    private ExpressionNode ParseExpression() => ParseTernary();
+
+    private ExpressionNode ParseTernary()
+    {
+        var condition = ParseComparison();
+
+        if (!Match(TokenType.QUESTION))
+            return condition;
+
+        Advance();
+        var whenTrue = ParseExpression();
+        Consume(TokenType.COLON);
+        var whenFalse = ParseExpression();
+
+        return new TernaryExpressionNode
+        {
+            Condition = condition,
+            WhenTrue = whenTrue,
+            WhenFalse = whenFalse
+        };
+    }
+
+    private ExpressionNode ParseComparison()
+    {
+        var expr = ParseTerm();
+
+        while (Match(TokenType.EQUAL_EQUAL) || Match(TokenType.BANG_EQUAL) || Match(TokenType.LESS) ||
+               Match(TokenType.LESS_EQUAL) || Match(TokenType.GREATER) || Match(TokenType.GREATER_EQUAL))
+        {
+            string op = Advance().Value;
+            var right = ParseTerm();
+            expr = new BinaryExpressionNode { Left = expr, Operator = op, Right = right };
+        }
+
+        return expr;
+    }
+
+    private ExpressionNode ParseTerm()
+    {
+        var expr = ParseFactor();
+
+        while (Match(TokenType.PLUS) || Match(TokenType.MINUS))
+        {
+            string op = Advance().Value;
+            var right = ParseFactor();
+            expr = new BinaryExpressionNode { Left = expr, Operator = op, Right = right };
+        }
+
+        return expr;
+    }
+
+    private ExpressionNode ParseFactor()
+    {
+        var expr = ParseUnary();
+
+        while (Match(TokenType.STAR) || Match(TokenType.SLASH) || Match(TokenType.MOD))
+        {
+            string op = Advance().Value;
+            var right = ParseUnary();
+            expr = new BinaryExpressionNode { Left = expr, Operator = op, Right = right };
+        }
+
+        return expr;
+    }
+
+    private ExpressionNode ParseUnary()
+    {
+        if (Match(TokenType.MINUS) || Match(TokenType.PLUS_PLUS))
+        {
+            string op = Advance().Value;
+            return new UnaryExpressionNode { Operator = op, Operand = ParseUnary() };
+        }
+
+        return ParsePostfix();
+    }
+
+    private ExpressionNode ParsePostfix()
+    {
+        var expr = ParsePrimary();
+
+        while (Match(TokenType.PLUS_PLUS))
+            expr = new PostfixExpressionNode { Operand = expr, Operator = Advance().Value };
+
+        return expr;
+    }
+
+    private ExpressionNode ParsePrimary()
+    {
+        if (Match(TokenType.NUMBER) || Match(TokenType.VERSION))
+            return new NumberNode { Value = Advance().Value };
+
+        if (Match(TokenType.IDENT))
+            return new IdentifierNode { Name = Advance().Value };
+
+        if (Match(TokenType.LPAREN))
+        {
+            Advance();
+            var expr = ParseExpression();
+            Consume(TokenType.RPAREN);
+            return expr;
+        }
+
+        throw new Exception($"Expected expression, got {Peek().Type} at {Peek().Line}:{Peek().Column}");
     }
 
     public Parser(List<Token> tokens)
