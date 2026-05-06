@@ -3,6 +3,7 @@
 
 // Sample single line commments
 
+cryolang 1.0.0
 import cryostd
 import ./local.cryo
 
@@ -15,6 +16,41 @@ public fun main() -> int {
 private fun add(const uint8 a, const uint8 b) -> uint8 {
     var uint8 sum = a + b;
     return sum;
+}
+
+private fun max1(const int64 a, const int64 b) -> int64 {
+    if (a > b)
+        return a;
+
+    return b;
+}
+
+private fun max2(const int64 a, const int64 b) -> int64 {
+    if (a > b)
+        return a;
+    else
+        return b;
+}
+
+private fun max3(const int64 a, const int64 b) -> int64 {
+    if (a > b) {
+        return a;
+    } else {
+        return b;
+    }
+}
+
+private fun max4(const int64 a, const int64 b) -> int64 {
+    return (a > b ? a : b);
+}
+
+private fun count(int n) -> int64 {
+    var int i = 0;
+    while (i < n) {
+        i++;
+    }
+
+    return i*i;
 }
 
 // FILE EOF
