@@ -3,13 +3,21 @@
 
 // Sample single line commments
 
+import cryostd
+import ./local.cryo
+
+macro BUFFER_SIZE 512
+
 public fun main() -> int {
     return 0;
 }
 
-private fun add(uint8 a, uint8 b) -> uint8 {
-    return a + b;
+private fun add(const uint8 a, const uint8 b) -> uint8 {
+    var uint8 sum = a + b;
+    return sum;
 }
+
+// FILE EOF
 
 // DATA TYPES:
 int

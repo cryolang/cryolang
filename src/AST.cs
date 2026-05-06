@@ -5,10 +5,10 @@ public abstract class ExpressionNode { }
 
 public class FunctionNode
 {
-    public string Name;
-    public string ReturnType;
-    public List<ParameterNode> Parameters = new();
-    public List<object> Body = new();
+    public required string Name;
+    public required string ReturnType;
+    public List<ParameterNode> Parameters = [];
+    public List<object> Body = [];
 }
 
 public class ReturnNode : StatementNode
